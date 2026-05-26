@@ -1512,9 +1512,12 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         except Exception:
             pass
 
-        # Reasoning config from config.yaml
+        # Reasoning config: per-job override wins; empty/omitted inherits config.yaml.
         from hermes_constants import parse_reasoning_effort
-        effort = str(_cfg.get("agent", {}).get("reasoning_effort", "")).strip()
+        agent_cfg = _cfg.get("agent", {}) if isinstance(_cfg, dict) else {}
+        if not isinstance(agent_cfg, dict):
+            agent_cfg = {}
+        effort = str(job.get("reasoning_effort") or agent_cfg.get("reasoning_effort", "")).strip()
         reasoning_config = parse_reasoning_effort(effort)
 
         # Prefill messages from env or config.yaml

@@ -393,6 +393,7 @@ def _format_job(job: Dict[str, Any]) -> Dict[str, Any]:
         "model": job.get("model"),
         "provider": job.get("provider"),
         "base_url": job.get("base_url"),
+        "reasoning_effort": job.get("reasoning_effort"),
         "schedule": job.get("schedule_display") or "?",
         "repeat": _repeat_display(job),
         "deliver": job.get("deliver", "local"),
@@ -439,6 +440,7 @@ def cronjob(
     workdir: Optional[str] = None,
     profile: Optional[str] = None,
     no_agent: Optional[bool] = None,
+    reasoning_effort: Optional[str] = None,
     task_id: str = None,
 ) -> str:
     """Unified cron job management tool."""
@@ -506,6 +508,7 @@ def cronjob(
                 workdir=_normalize_optional_job_value(workdir),
                 profile=_normalize_optional_job_value(profile),
                 no_agent=_no_agent,
+                reasoning_effort=_normalize_optional_job_value(reasoning_effort),
             )
             return json.dumps(
                 {
@@ -657,6 +660,8 @@ def cronjob(
                             success=False,
                         )
                 updates["no_agent"] = target_no_agent
+            if reasoning_effort is not None:
+                updates["reasoning_effort"] = _normalize_optional_job_value(reasoning_effort)
             if repeat is not None:
                 # Normalize: treat 0 or negative as None (infinite)
                 normalized_repeat = None if repeat <= 0 else repeat
@@ -774,6 +779,11 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
                     "WHEN TO USE False (default): anything that needs reasoning — summarize a feed, draft a daily briefing, pick interesting items, rephrase data for a human, follow conditional logic based on content."
                 ),
             },
+            "reasoning_effort": {
+                "type": "string",
+                "enum": ["none", "minimal", "low", "medium", "high", "xhigh", ""],
+                "description": "Optional per-job reasoning override. Empty/omitted inherits agent.reasoning_effort from config. Valid values: none, minimal, low, medium, high, xhigh. Ignored by no_agent=True jobs.",
+            },
             "context_from": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -856,6 +866,7 @@ registry.register(
         workdir=args.get("workdir"),
         profile=args.get("profile"),
         no_agent=args.get("no_agent"),
+        reasoning_effort=args.get("reasoning_effort"),
         task_id=kw.get("task_id"),
     ))(),
     check_fn=check_cronjob_requirements,
