@@ -2507,6 +2507,7 @@ def _run_with_fire_claim_heartbeat(job: dict, run) -> bool:
 def run_one_job(
     job: dict, *, adapters=None, loop=None, verbose: bool = False,
     extra_prompt: Optional[str] = None, cancel_event: Optional[_CancelEventLike] = None,
+    result_sink: Optional[dict] = None,
 ) -> bool:
     """Run ONE due job end-to-end: execute → save output → deliver → mark. Shared by the built-in
     ticker and external providers' ``fire_due``; does NOT decide due-ness or acquire the initial
@@ -2568,7 +2569,8 @@ def run_one_job(
                     if cancel_event is not None
                     else lost_ownership
                 ),
-                execution_token=execution_token))
+                execution_token=execution_token,
+                result_sink=result_sink))
     finally:
         with _running_lock:
             executions = _running_fire_owners.get(job["id"])
@@ -2870,6 +2872,7 @@ def _run_one_job_body(
     job: dict, *, adapters=None, loop=None, verbose: bool = False,
     extra_prompt: Optional[str] = None, fire_claim_lost: Optional[_CancelEventLike] = None,
     execution_token: Optional[object] = None,
+    result_sink: Optional[dict] = None,
 ) -> bool:
     fence = _FireOwnership(job, fire_claim_lost)
     fire_owner = fence.owner
@@ -2958,6 +2961,8 @@ def _run_one_job_body(
             _run_kwargs["cancel_event"] = fire_claim_lost
         try:
             success, output, final_response, error = run_job(job, **_run_kwargs)
+            if result_sink is not None:
+                result_sink["final_response"] = final_response
         except BaseException:
             # run_job hands back the agent even when raising; tear down so a failed run never leaks.
             # BaseException so KeyboardInterrupt/SystemExit mid-run still trigger teardown.

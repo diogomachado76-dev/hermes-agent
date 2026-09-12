@@ -237,6 +237,26 @@ class TestInFlightDedupe:
         assert seen_during_run["registered"] is True
         assert "job-bg-09" not in sched.get_running_job_ids()   # released after
 
+    def test_run_claimed_job_returns_scheduler_final_response(self):
+        """The manual-run worker carries the exact final response into its
+        completion event instead of recovering it from ambiguous Markdown."""
+        from tools.cronjob_tools import _run_claimed_job
+
+        response = "Resumo inicial\n\n```md\n## Error\nexemplo\n```\n\nConclusão final"
+
+        def fake_run(job, **kwargs):
+            assert isinstance(kwargs.get("result_sink"), dict)
+            kwargs["result_sink"]["final_response"] = response
+            return True
+
+        with patch("cron.scheduler.run_one_job", side_effect=fake_run), \
+             patch("tools.cronjob_tools.get_job",
+                   return_value={"last_status": "ok", "last_error": None}):
+            result = _run_claimed_job(_job("job-bg-response"))
+
+        assert result["success"] is True
+        assert result["final_response"] == response
+
     def test_run_claimed_job_reports_exact_unknown_execution_not_stale_success(self):
         from tools.cronjob_tools import _run_claimed_job
 

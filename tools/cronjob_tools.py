@@ -296,8 +296,15 @@ def _run_claimed_job(job: Dict[str, Any], extra_prompt: Optional[str] = None) ->
         try:
             # run_one_job records last_run_at/last_status via mark_job_run; `job` is the
             # owner-bearing claimed snapshot, so terminal writes stay fenced by that owner.
+            result_sink: Dict[str, Any] = {}
             with _run_heartbeat(str(job.get("name") or job_id)):
-                processed = run_one_job(job, adapters=adapters, loop=gateway_loop, extra_prompt=extra_prompt)
+                processed = run_one_job(
+                    job,
+                    adapters=adapters,
+                    loop=gateway_loop,
+                    extra_prompt=extra_prompt,
+                    result_sink=result_sink,
+                )
         finally:
             _registered = False
             release_running_job(job_id)
@@ -321,7 +328,12 @@ def _run_claimed_job(job: Dict[str, Any], extra_prompt: Optional[str] = None) ->
         if execution is not None and execution.get("status") != "completed":
             ok = False
             run_error = execution.get("error") or f"execution ended in {execution.get('status') or 'unknown'} state"
-        return {"claimed": True, "success": bool(processed and ok), "error": run_error}
+        return {
+            "claimed": True,
+            "success": bool(processed and ok),
+            "error": run_error,
+            "final_response": result_sink.get("final_response"),
+        }
     except Exception as e:
         logger.error("Failed to execute cron job %s immediately: %s", job_id, e)
         if _registered:
@@ -344,6 +356,7 @@ def _latest_job_output_excerpt(job_id: str, max_chars: int = 2000) -> Optional[s
         text = files[-1].read_text(encoding="utf-8", errors="replace").strip() if files else ""
         if not text:
             return None
+
         if len(text) > max_chars:
             text = text[:max_chars] + f"\n… (truncated; full output: {files[-1]})"
         return text
@@ -399,7 +412,14 @@ def _manual_run_completion(
     ]
     if refreshed.get("next_run_at"):
         lines.append(f"Next scheduled run: {refreshed['next_run_at']}")
-    excerpt = _latest_job_output_excerpt(job_id)
+    captured_response = res.get("final_response")
+    excerpt = captured_response.strip() if isinstance(captured_response, str) else ""
+    if len(excerpt) > 2000:
+        excerpt = excerpt[:2000] + "\n… (truncated; full response saved in cron output)"
+    if not excerpt:
+        # Compatibility path for script-only, externally executed, and older runs that do
+        # not transport the final response directly.
+        excerpt = _latest_job_output_excerpt(job_id)
     if excerpt:
         lines += ["--- JOB OUTPUT ---", excerpt]
     return {

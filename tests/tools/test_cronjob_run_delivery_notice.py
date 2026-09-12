@@ -21,7 +21,10 @@ from unittest.mock import patch
 
 import pytest
 
-from tools.cronjob_tools import _manual_run_delivery_note
+from tools.cronjob_tools import (
+    _manual_run_completion,
+    _manual_run_delivery_note,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -179,6 +182,38 @@ class TestDeliveryNote:
         note = _manual_run_delivery_note("telegram", {"last_delivery_error": "E" * 500})
         assert "E" * 200 in note
         assert "E" * 201 not in note
+
+
+class TestManualRunResponseExcerpt:
+    """The completion notice should use the captured final response directly,
+    without reparsing ambiguous Markdown from the persisted run document."""
+
+    def test_prefers_captured_response_and_preserves_nested_headings(self):
+        response = (
+            "✅ Teste Radar limpo — MTProto confirmado\n\n"
+            "```md\n## Error\nexemplo citado\n```\n\n"
+            "Conclusão final preservada."
+        )
+        with (
+            patch("tools.cronjob_tools.get_job", return_value={"last_status": "ok"}),
+            patch(
+                "tools.cronjob_tools._latest_job_output_excerpt",
+                return_value="# Cron Job: Radar\n\n## Prompt\n\ninjected skill text",
+            ) as fallback,
+        ):
+            completion = _manual_run_completion(
+                {"success": True, "final_response": response},
+                "job-response-excerpt",
+                "Radar",
+                "telegram",
+                0.0,
+            )
+
+        summary = completion["summary"]
+        assert response in summary
+        assert "# Cron Job" not in summary
+        assert "injected skill text" not in summary
+        fallback.assert_not_called()
 
 
 class TestRunnerSummaryWiring:
